@@ -1,6 +1,6 @@
 % 清空工作区
 clear; clc;
-vis_pose = false;
+vis_pose = true;
 vis_predict = false;
 
 % 相机内参
@@ -29,7 +29,7 @@ R_camera = [1, 0, 0; 0, 0, -1; 0, 1, 0];
 t_camera = [1; 2; 0.1];
 R_camera0 = R_camera;
 t_camera0 = t_camera;
-theta_y = deg2rad(0);  % 绕 y 轴旋转角度
+theta_y = deg2rad(1);  % 绕 y 轴旋转角度
 R_y = [cos(theta_y), 0, sin(theta_y); 0, 1, 0; -sin(theta_y), 0, cos(theta_y)]; % 绕 y 轴旋转
 R_camera = R_camera*R_y; % 组合旋转
 
@@ -40,13 +40,14 @@ t_camera_d = [0; 0.3; 0.1];
 % 仿真参数
 Np = 5;   % 预测时域
 Q = eye(8); % 加权矩阵 (8x8单位矩阵)
-R = 5000 * [0.1,    0,    0,    0,    0,    0;
-             0,    0.1,    0,    0,    0,    0;
-             0,    0,    0.1,    0,    0,    0;
-             0,    0,    0,    1,    0,    0;
-             0,    0,    0,    0,    1,    0;
-             0,    0,    0,    0,    0,    1];
-Tf = 5; % 仿真总时间 (10秒)
+R = 500 * [0,    0,    0,    0,    0,    0;
+             0,    0,    0,    0,    0,    0;
+             0,    0,    1,    0,    0,    0;
+             0,    0,    0,    0,    0,    0;
+             0,    0,    0,    0,    0.1,    0;
+             0,    0,    0,    0,    0,    0];
+P = 1000;
+Tf = 10; % 仿真总时间 (10秒)
 Ts = 0.04; % 采样时间 (40ms)
 t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
@@ -133,8 +134,12 @@ h_image_points_star = plot(s_star(1:2:end), s_star(2:2:end), 'rx', 'MarkerSize',
 legend('Current Features', 'Target Features');
 
 % 初始化预测历史可视化
-fig_handle = figure('Name', 'Predicted Feature Points History');
-set(fig_handle, 'Position', [1500, 500, 600, 500]); % 设置窗口位置和大小
+if vis_predict
+    fig_handle = figure('Name', 'Predicted Feature Points History');
+    set(fig_handle, 'Position', [1500, 500, 600, 500]); % 设置窗口位置和大小
+else
+    fig_handle = 0;
+end
 
 t_camera_history = zeros(3, N); % 相机位置历史 (3xN 矩阵)
 t_camera_history(:, 1) = t_camera;
@@ -149,7 +154,7 @@ for k = 1:N-1
     tau_initial_seq = predict_tau_matrix;
     
     % MPC控制器计算控制输入
-    [tau, predict_tau_matrix] = mpc_controller(s, s_star, Z, Np, Q, R, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict);
+    [tau, predict_tau_matrix] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict);
     
     % 存储控制输入
     tau_history(:, k) = tau;
@@ -271,10 +276,10 @@ function output_s = project_points_to_image(P_world, K, R, t, image_width, image
     end
 end
 
-function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict)
+function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict)
 
     % 定义成本函数
-    fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F);
+    fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
 
     % 定义视野约束
     nonlcon = @(tau_seq) fov_constraints(tau_seq, s, Z, Np, Ts, K, F, image_width, image_height);
@@ -303,7 +308,7 @@ function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, Ts, K, F, image
     % 提取第一个控制输入
     tau = tau_seq(1:6);
 
-    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F);
+    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
     fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J3);
 
     if vis_predict
@@ -342,15 +347,30 @@ function [c, ceq] = fov_constraints(tau_seq, s, Z, Np, Ts, K, F, image_width, im
              v - (image_height - 0)]; % v <= image_height - 10
 
         ceq = [ceq; 
-               tau(2)   % vy = 0
+               tau(1);  % vx = 0
+               tau(2);  % vy = 0
                tau(4);  % wx = 0
                tau(6)]; % wz = 0
     end
 end
 
-function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F)
+function result = calculateDifferenceSquared(s_pred)
+    v1 = s_pred(2);
+    v2 = s_pred(4);
+    v3 = s_pred(6);
+    v4 = s_pred(8);
+
+    diff1 = abs(v3 - v1);
+    diff2 = abs(v4 - v2);
+
+    % 计算差值的平方
+    result = (1-diff1/diff2)^2;
+end
+
+function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F)
     J1 = 0;
     J2 = 0;
+    J3 = 0;
     s_pred = s;
 
     % 初始化存储 s_pred 历史
@@ -374,6 +394,7 @@ function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, 
         if j == Np
             e = s_pred - s_star;
             J1 = e' * Q * e;
+            J3 = P * calculateDifferenceSquared(s_pred);
         end
 
         % 累加成本

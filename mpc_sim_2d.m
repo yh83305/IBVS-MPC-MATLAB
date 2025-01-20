@@ -29,7 +29,7 @@ R_camera = [1, 0, 0; 0, 0, -1; 0, 1, 0];
 t_camera = [1; 2; 0.1];
 R_camera0 = R_camera;
 t_camera0 = t_camera;
-theta_y = deg2rad(0);  % 绕 y 轴旋转角度
+theta_y = deg2rad(1);  % 绕 y 轴旋转角度
 R_y = [cos(theta_y), 0, sin(theta_y); 0, 1, 0; -sin(theta_y), 0, cos(theta_y)]; % 绕 y 轴旋转
 R_camera = R_camera*R_y; % 组合旋转
 
@@ -40,9 +40,14 @@ t_camera_d = [0; 0.3; 0.1];
 % 仿真参数
 Np = 5;   % 预测时域
 Q = eye(8); % 加权矩阵 (8x8单位矩阵)
-R = 5000; % 正则化权重
-P = 100000;
-Tf = 1; % 仿真总时间 (10秒)
+R = 500 * [0,    0,    0,    0,    0,    0;
+             0,    0,    0,    0,    0,    0;
+             0,    0,    1,    0,    0,    0;
+             0,    0,    0,    0,    0,    0;
+             0,    0,    0,    0,    0.1,    0;
+             0,    0,    0,    0,    0,    0];
+P = 1000;
+Tf = 10; % 仿真总时间 (10秒)
 Ts = 0.04; % 采样时间 (40ms)
 t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
@@ -140,19 +145,16 @@ t_camera_history = zeros(3, N); % 相机位置历史 (3xN 矩阵)
 t_camera_history(:, 1) = t_camera;
 R_history = zeros(3, 3, N); % 相机旋转矩阵历史 (3x3xN 矩阵)
 
+predict_tau_matrix = 0.1 * ones(6*Np, 1);
 % 主仿真循环
 for k = 1:N-1
     % 当前视觉特征
     s = s_history(:, k);
 
-    if k > 1
-        tau_now = tau_history(:, k-1);
-    else
-        tau_now = 0.1 * ones(6, 1);
-    end
+    tau_initial_seq = predict_tau_matrix;
     
     % MPC控制器计算控制输入
-    tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict);
+    [tau, predict_tau_matrix] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict);
     
     % 存储控制输入
     tau_history(:, k) = tau;
@@ -196,7 +198,7 @@ for k = 1:N-1
     % fprintf('Time: %.2f s, Control Input (tau): [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f], R_weight: %.4f\n', t(k), tau(1), tau(2), tau(3), tau(4), tau(5), tau(6), R);
 
     % 打印相机位置
-    % fprintf('Camera Position: [%.4f, %.4f, %.4f], Z: %.4f \n', t_camera(1), t_camera(2), t_camera(3), Z);
+    fprintf('Camera Position: [%.4f, %.4f, %.4f], Z: %.4f \n', t_camera(1), t_camera(2), t_camera(3), Z);
 
     t_camera_history(:, k+1) = t_camera; % 存储最后一帧的相机位置
     R_history(:, :, k+1) = R_camera; % 存储最后一帧的旋转矩阵
@@ -274,7 +276,7 @@ function output_s = project_points_to_image(P_world, K, R, t, image_width, image
     end
 end
 
-function tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict)
+function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict)
 
     % 定义成本函数
     fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
@@ -300,11 +302,8 @@ function tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, 
         options = options_headless;
     end
 
-    % 初始猜测 (6*Nc 维向量)
-    tau_seq0 = repelem(tau_now, Np, 1);
-
     % 调用 fmincon 求解
-    tau_seq = fmincon(fun, tau_seq0, [], [], [], [], [], [], nonlcon, options);
+    tau_seq = fmincon(fun, tau_initial_seq, [], [], [], [], [], [], nonlcon, options);
 
     % 提取第一个控制输入
     tau = tau_seq(1:6);
@@ -392,15 +391,17 @@ function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, 
         s_pred_history(:, j + 1) = s_pred;
 
         % 计算误差
-        e = s_pred - s_star;
+        if j == Np
+            e = s_pred - s_star;
+            J1 = e' * Q * e;
+            % J3 = P * calculateDifferenceSquared(s_pred);
+        end
 
         % 累加成本
-        J1 = J1 + e' * Q * e;
-        J2 = J2 + R * (tau' * tau);
-        J3 = P * calculateDifferenceSquared(s_pred);
+        J2 = J2 + tau' * R * tau;
     end
 
-    J = J1 + J2 + J3;
+    J = J1 + J2;
 end
 
 function plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle)
