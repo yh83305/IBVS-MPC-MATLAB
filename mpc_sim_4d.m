@@ -40,9 +40,8 @@ t_camera_d = [0; 0.3; 0.1];
 % 仿真参数
 Np = 5;   % 预测时域
 Q = eye(8); % 加权矩阵 (8x8单位矩阵)
-R = 5000; % 正则化权重
-P = 100000;
-Tf = 1; % 仿真总时间 (10秒)
+R_weight = 5000; % 正则化权重
+Tf = 10; % 仿真总时间 (10秒)
 Ts = 0.04; % 采样时间 (40ms)
 t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
@@ -129,12 +128,8 @@ h_image_points_star = plot(s_star(1:2:end), s_star(2:2:end), 'rx', 'MarkerSize',
 legend('Current Features', 'Target Features');
 
 % 初始化预测历史可视化
-if vis_predict
-    fig_handle = figure('Name', 'Predicted Feature Points History');
-    set(fig_handle, 'Position', [1500, 500, 600, 500]); % 设置窗口位置和大小
-else
-    fig_handle = 0;
-end
+fig_handle = figure('Name', 'Predicted Feature Points History');
+set(fig_handle, 'Position', [1500, 500, 600, 500]); % 设置窗口位置和大小
 
 t_camera_history = zeros(3, N); % 相机位置历史 (3xN 矩阵)
 t_camera_history(:, 1) = t_camera;
@@ -152,7 +147,7 @@ for k = 1:N-1
     end
     
     % MPC控制器计算控制输入
-    tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict);
+    tau = mpc_controller(s, s_star, Z, Np, Q, R_weight, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict);
     
     % 存储控制输入
     tau_history(:, k) = tau;
@@ -193,10 +188,10 @@ for k = 1:N-1
     end
 
     % 打印控制输入
-    % fprintf('Time: %.2f s, Control Input (tau): [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f], R_weight: %.4f\n', t(k), tau(1), tau(2), tau(3), tau(4), tau(5), tau(6), R);
+    fprintf('Time: %.2f s, Control Input (tau): [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f], R_weight: %.4f\n', t(k), tau(1), tau(2), tau(3), tau(4), tau(5), tau(6), R_weight);
 
     % 打印相机位置
-    % fprintf('Camera Position: [%.4f, %.4f, %.4f], Z: %.4f \n', t_camera(1), t_camera(2), t_camera(3), Z);
+    fprintf('Camera Position: [%.4f, %.4f, %.4f], Z: %.4f \n', t_camera(1), t_camera(2), t_camera(3), Z);
 
     t_camera_history(:, k+1) = t_camera; % 存储最后一帧的相机位置
     R_history(:, :, k+1) = R_camera; % 存储最后一帧的旋转矩阵
@@ -274,10 +269,10 @@ function output_s = project_points_to_image(P_world, K, R, t, image_width, image
     end
 end
 
-function tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict)
+function tau = mpc_controller(s, s_star, Z, Np, Q, R_weight, Ts, K, F, image_width, image_height, tau_now, fig_handle, vis_predict)
 
     % 定义成本函数
-    fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
+    fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R_weight, Ts, K, F);
 
     % 定义视野约束
     nonlcon = @(tau_seq) fov_constraints(tau_seq, s, Z, Np, Ts, K, F, image_width, image_height);
@@ -309,8 +304,7 @@ function tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, 
     % 提取第一个控制输入
     tau = tau_seq(1:6);
 
-    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
-    fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J3);
+    [~, s_pred_history] = cost_function(tau_seq, s, s_star, Z, Np, Q, R_weight, Ts, K, F);
 
     if vis_predict
         plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle);
@@ -348,30 +342,14 @@ function [c, ceq] = fov_constraints(tau_seq, s, Z, Np, Ts, K, F, image_width, im
              v - (image_height - 0)]; % v <= image_height - 10
 
         ceq = [ceq; 
-               tau(1);  % vx = 0
-               tau(2);  % vy = 0
                tau(4);  % wx = 0
                tau(6)]; % wz = 0
     end
 end
 
-function result = calculateDifferenceSquared(s_pred)
-    v1 = s_pred(2);
-    v2 = s_pred(4);
-    v3 = s_pred(6);
-    v4 = s_pred(8);
-
-    diff1 = abs(v3 - v1);
-    diff2 = abs(v4 - v2);
-
-    % 计算差值的平方
-    result = (1-diff1/diff2)^2;
-end
-
-function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F)
+function [J, s_pred_history] = cost_function(tau_seq, s, s_star, Z, Np, Q, R_weight, Ts, K, F)
     J1 = 0;
     J2 = 0;
-    J3 = 0;
     s_pred = s;
 
     % 初始化存储 s_pred 历史
@@ -396,11 +374,11 @@ function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, 
 
         % 累加成本
         J1 = J1 + e' * Q * e;
-        J2 = J2 + R * (tau' * tau);
-        J3 = P * calculateDifferenceSquared(s_pred);
+        J2 = J2 + R_weight * (tau' * tau);
     end
 
-    J = J1 + J2 + J3;
+    J = J1 + J2;
+    % fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J);
 end
 
 function plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle)

@@ -14,15 +14,15 @@ K = [fx, 0, cx; 0, fy, cy; 0, 0, 1]; % 相机内参矩阵
 image_width = 640; % 图像宽度 (像素)
 image_height = 480; % 图像高度 (像素)
 
-F = zeros(8, 8); % 初始化 8x8 的零矩阵
+F = zeros(4, 4); % 初始化 4x4 的零矩阵
 
 % 设置奇数行对角为 fx
-F(1:2:end, 1:2:end) = diag(fx * ones(4, 1)); % 奇数行对角
+F(1:2:end, 1:2:end) = diag(fx * ones(2, 1)); % 奇数行对角
 % 设置偶数行对角为 fy
-F(2:2:end, 2:2:end) = diag(fy * ones(4, 1)); % 偶数行对角
+F(2:2:end, 2:2:end) = diag(fy * ones(2, 1)); % 偶数行对角
 
 % 定义特征点的三维位置 (方形，边长 20cm)
-P_world = [0.1, 0, 0; -0.1, 0, 0; 0.1, 0, 0.2; -0.1, 0, 0.2]'; % 世界坐标系下的三维点 (3x4 矩阵)
+P_world = [0.1, 0, 0; -0.1, 0, 0]'; % 世界坐标系下的三维点 (3x4 矩阵)
 
 % 定义相机初始位置和姿态
 R_camera = [1, 0, 0; 0, 0, -1; 0, 1, 0];
@@ -39,7 +39,7 @@ t_camera_d = [0; 0.3; 0.1];
 
 % 仿真参数
 Np = 5;   % 预测时域
-Q = eye(8); % 加权矩阵 (8x8单位矩阵)
+Q = eye(4); % 加权矩阵 (8x8单位矩阵)
 R = 5000; % 正则化权重
 P = 100000;
 Tf = 1; % 仿真总时间 (10秒)
@@ -48,7 +48,7 @@ t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
 
 % 存储变量
-s_history = zeros(8, N); % 存储视觉特征
+s_history = zeros(4, N); % 存储视觉特征
 tau_history = zeros(6, N); % 存储控制输入
 Z_history = zeros(1, N); % 存储深度 Z
 
@@ -309,8 +309,8 @@ function tau = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, 
     % 提取第一个控制输入
     tau = tau_seq(1:6);
 
-    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
-    fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J3);
+    [~, s_pred_history, J1, J2] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
+    fprintf('J: [%.4f, %.4f]\n', J1, J2);
 
     if vis_predict
         plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle);
@@ -368,10 +368,9 @@ function result = calculateDifferenceSquared(s_pred)
     result = (1-diff1/diff2)^2;
 end
 
-function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F)
+function [J, s_pred_history, J1, J2] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F)
     J1 = 0;
     J2 = 0;
-    J3 = 0;
     s_pred = s;
 
     % 初始化存储 s_pred 历史
@@ -397,10 +396,9 @@ function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, 
         % 累加成本
         J1 = J1 + e' * Q * e;
         J2 = J2 + R * (tau' * tau);
-        J3 = P * calculateDifferenceSquared(s_pred);
     end
 
-    J = J1 + J2 + J3;
+    J = J1 + J2;
 end
 
 function plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle)
@@ -494,9 +492,9 @@ function plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_hi
     % 绘制视觉特征与期望值的对比
     figure;
     hold on;
-    colors = lines(8); % 使用 lines 颜色映射，生成 8 种颜色（4 个点，每个点 2 个颜色）
+    colors = lines(4); % 使用 lines 颜色映射，生成 8 种颜色（4 个点，每个点 2 个颜色）
     line_styles = {'-', '--'}; % 实线表示实际值，虚线表示期望值
-    for i = 1:4
+    for i = 1:2
         % 绘制实际值 (u, v)
         plot(t, s_history(2*i-1, :), 'Color', colors(2*i-1, :), 'LineStyle', line_styles{1}, 'LineWidth', 1.5); % u
         plot(t, s_history(2*i, :), 'Color', colors(2*i, :), 'LineStyle', line_styles{1}, 'LineWidth', 1.5); % v
@@ -511,9 +509,7 @@ function plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_hi
     ylabel('Visual Features');
     title('Visual Features Evolution');
     legend('u1', 'v1', 'u1^*', 'v1^*', ...
-           'u2', 'v2', 'u2^*', 'v2^*', ...
-           'u3', 'v3', 'u3^*', 'v3^*', ...
-           'u4', 'v4', 'u4^*', 'v4^*');
+           'u2', 'v2', 'u2^*', 'v2^*');
     grid on;
 
     % 绘制深度 Z 的变化与期望值的对比
