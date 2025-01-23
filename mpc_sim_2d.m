@@ -4,8 +4,8 @@ vis_pose = true;
 vis_predict = false;
 
 % 相机内参
-fx = 400; % x 轴方向的焦距 (像素)
-fy = 400; % y 轴方向的焦距 (像素)
+fx = 300; % x 轴方向的焦距 (像素)
+fy = 300; % y 轴方向的焦距 (像素)
 cx = 320.5; % 图像中心 x 坐标 (像素)
 cy = 240.5; % 图像中心 y 坐标 (像素)
 K = [fx, 0, cx; 0, fy, cy; 0, 0, 1]; % 相机内参矩阵
@@ -22,32 +22,34 @@ F(1:2:end, 1:2:end) = diag(fx * ones(4, 1)); % 奇数行对角
 F(2:2:end, 2:2:end) = diag(fy * ones(4, 1)); % 偶数行对角
 
 % 定义特征点的三维位置 (方形，边长 20cm)
-P_world = [0.1, 0, 0; -0.1, 0, 0; 0.1, 0, 0.2; -0.1, 0, 0.2]'; % 世界坐标系下的三维点 (3x4 矩阵)
+P_world = [0, 0.1, 0; 0, -0.1, 0; 0, 0.1, 0.2; 0, -0.1, 0.2]'; % 世界坐标系下的三维点 (3x4 矩阵)
 
 % 定义相机初始位置和姿态
-R_camera = [1, 0, 0; 0, 0, -1; 0, 1, 0];
-t_camera = [1; 2; 0.1];
+R_camera = [0, 0, -1; 1, 0, 0; 0, 1, 0];
+t_camera = [2; 1; 0.1];
 R_camera0 = R_camera;
 t_camera0 = t_camera;
-theta_y = deg2rad(1);  % 绕 y 轴旋转角度
+theta_y = deg2rad(0);  % 绕 y 轴旋转角度
 R_y = [cos(theta_y), 0, sin(theta_y); 0, 1, 0; -sin(theta_y), 0, cos(theta_y)]; % 绕 y 轴旋转
 R_camera = R_camera*R_y; % 组合旋转
 
 % 定义目标相机位置和姿态
-R_camera_d = [1, 0, 0; 0, 0, -1; 0, 1, 0];
-t_camera_d = [0; 0.3; 0.1];
+R_camera_d = [0, 0, -1; 1, 0, 0; 0, 1, 0];
+t_camera_d = [0.3; 0; 0.1];
 
 % 仿真参数
 Np = 5;   % 预测时域
-Q = eye(8); % 加权矩阵 (8x8单位矩阵)
-R = 500 * [0,    0,    0,    0,    0,    0;
-             0,    0,    0,    0,    0,    0;
+diag_values = [1, 1, 1, 1, 1, 1, 1, 1];
+Q = diag(diag_values);
+
+R = 300 * [1,    0,    0,    0,    0,    0;
+             0,    1,    0,    0,    0,    0;
              0,    0,    1,    0,    0,    0;
-             0,    0,    0,    0,    0,    0;
-             0,    0,    0,    0,    0.1,    0;
-             0,    0,    0,    0,    0,    0];
-P = 1000;
-Tf = 10; % 仿真总时间 (10秒)
+             0,    0,    0,    1,    0,    0;
+             0,    0,    0,    0,    1,    0;
+             0,    0,    0,    0,    0,    1];
+P = 10000;
+Tf = 5; % 仿真总时间 (10秒)
 Ts = 0.04; % 采样时间 (40ms)
 t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
@@ -62,6 +64,13 @@ s0 = project_points_to_image(P_world, K, R_camera, t_camera, image_width, image_
 s_history(:, 1) = s0; % 初始视觉特征
 s_star = project_points_to_image(P_world, K, R_camera_d, t_camera_d, image_width, image_height); % 参考视觉特征 (目标位置)
 
+t_ref = (t_camera + t_camera_d)/2;
+R_ref = [1, 0, 0; 0, 0, -1; 0, 1, 0];
+theta_y = deg2rad(-60);  % 绕 y 轴旋转角度
+R_y = [cos(theta_y), 0, sin(theta_y); 0, 1, 0; -sin(theta_y), 0, cos(theta_y)]; % 绕 y 轴旋转
+R_ref = R_ref*R_y; % 组合旋转
+
+s_ref = project_points_to_image(P_world, K, R_ref, t_ref, image_width, image_height);
 % 初始深度 Z (相机到特征点中心的距离)
 o_T_p = [eye(3,3), mean(P_world,2);
     zeros(1,3), 1];
@@ -91,16 +100,32 @@ h_feature_points = plot3(P_world(1, :), P_world(2, :), P_world(3, :), 'bo', 'Mar
 h_camera = plot3(t_camera(1), t_camera(2), t_camera(3), 'rs', 'MarkerSize', 10, 'LineWidth', 2);
 
 % 绘制相机的三个轴
-axis_length = 0.2; % 轴的长度
+axis_length = 0.2;
+
+% 绘制 t_camera 的坐标系
 h_x_axis = plot3([t_camera(1), t_camera(1) + axis_length * R_camera(1, 1)], ...
                  [t_camera(2), t_camera(2) + axis_length * R_camera(2, 1)], ...
-                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 1)], 'r', 'LineWidth', 2); % x 轴
+                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 1)], 'r', 'LineWidth', 2); % x 轴（红色）
 h_y_axis = plot3([t_camera(1), t_camera(1) + axis_length * R_camera(1, 2)], ...
                  [t_camera(2), t_camera(2) + axis_length * R_camera(2, 2)], ...
-                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 2)], 'g', 'LineWidth', 2); % y 轴
+                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 2)], 'g', 'LineWidth', 2); % y 轴（绿色）
 h_z_axis = plot3([t_camera(1), t_camera(1) + axis_length * R_camera(1, 3)], ...
                  [t_camera(2), t_camera(2) + axis_length * R_camera(2, 3)], ...
-                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 3)], 'b', 'LineWidth', 2); % z 轴
+                 [t_camera(3), t_camera(3) + axis_length * R_camera(3, 3)], 'b', 'LineWidth', 2); % z 轴（蓝色）
+
+% 绘制 t_ref 的坐标系
+h_xref_axis = plot3([t_ref(1), t_ref(1) + axis_length * R_ref(1, 1)], ...
+                    [t_ref(2), t_ref(2) + axis_length * R_ref(2, 1)], ...
+                    [t_ref(3), t_ref(3) + axis_length * R_ref(3, 1)], 'm', 'LineWidth', 2); % x 轴（洋红色）
+h_yref_axis = plot3([t_ref(1), t_ref(1) + axis_length * R_ref(1, 2)], ...
+                    [t_ref(2), t_ref(2) + axis_length * R_ref(2, 2)], ...
+                    [t_ref(3), t_ref(3) + axis_length * R_ref(3, 2)], 'c', 'LineWidth', 2); % y 轴（青色）
+h_zref_axis = plot3([t_ref(1), t_ref(1) + axis_length * R_ref(1, 3)], ...
+                    [t_ref(2), t_ref(2) + axis_length * R_ref(2, 3)], ...
+                    [t_ref(3), t_ref(3) + axis_length * R_ref(3, 3)], 'y', 'LineWidth', 2); % z 轴（黄色）
+
+% 绘制初始相机位置
+h_ref = plot3(t_ref(1), t_ref(2), t_ref(3), 'rs', 'MarkerSize', 10, 'LineWidth', 2); % 参考相机位置（红色方块）
 
 % 初始化图像平面可视化
 fig_image = figure('Name', 'Feature Points in Image Plane');
@@ -130,6 +155,7 @@ ylim([0, image_height]);
 h_image_points = plot(s0(1:2:end), s0(2:2:end), 'bo', 'MarkerSize', 10, 'LineWidth', 2);
 
 % 绘制参考视觉特征 s_star
+h_image_points_ref = plot(s_ref(1:2:end), s_ref(2:2:end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
 h_image_points_star = plot(s_star(1:2:end), s_star(2:2:end), 'rx', 'MarkerSize', 10, 'LineWidth', 2);
 legend('Current Features', 'Target Features');
 
@@ -146,16 +172,25 @@ t_camera_history(:, 1) = t_camera;
 R_history = zeros(3, 3, N); % 相机旋转矩阵历史 (3x3xN 矩阵)
 
 predict_tau_matrix = 0.1 * ones(6*Np, 1);
+
+J_history = [];
+
 % 主仿真循环
 for k = 1:N-1
     % 当前视觉特征
     s = s_history(:, k);
 
     tau_initial_seq = predict_tau_matrix;
-    
+
+    if k < N/2
+        s_input = s_star;
+    else
+        s_input = s_star;
+    end
     % MPC控制器计算控制输入
-    [tau, predict_tau_matrix] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict);
+    [tau, predict_tau_matrix, J] = mpc_controller(s, s_input, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict);
     
+    J_history = [J_history; J];
     % 存储控制输入
     tau_history(:, k) = tau;
     
@@ -205,7 +240,7 @@ for k = 1:N-1
 
 end
 
-plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_history, t_camera_history, t_camera_d, R_history, R_camera_d, t_camera0, R_camera0, P_world)
+plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_history, t_camera_history, t_camera_d, R_history, R_camera_d, t_camera0, R_camera0, P_world, J_history)
 
 % 定义交互矩阵
 function Ls = interaction_matrix(s, Z, K)
@@ -276,8 +311,7 @@ function output_s = project_points_to_image(P_world, K, R, t, image_width, image
     end
 end
 
-function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict)
-
+function [tau, tau_seq, J] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, image_width, image_height, tau_initial_seq, fig_handle, vis_predict)
     % 定义成本函数
     fun = @(tau_seq) cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
 
@@ -308,7 +342,7 @@ function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, P, Ts, K, F, im
     % 提取第一个控制输入
     tau = tau_seq(1:6);
 
-    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
+    [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F);
     fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J3);
 
     if vis_predict
@@ -365,6 +399,15 @@ function result = calculateDifferenceSquared(s_pred)
 
     % 计算差值的平方
     result = (1-diff1/diff2)^2;
+end
+
+function uv_sym = symmetric_reflection(uv, k1, k2)
+    u = uv(1:2:end);
+    v = uv(2:2:end);
+    u_sym = 2 * k1 - u;
+    v_sym = 2 * k2 - v;
+
+    uv_sym = reshape([u_sym'; v_sym'], [], 1);
 end
 
 function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, P, Ts, K, F)
@@ -491,7 +534,7 @@ function S = skew(w)
          -w(2), w(1), 0];
 end
 
-function plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_history, t_camera_history, t_camera_d, R_history, R_camera_d, t_camera_initial, R_camera_initial, P_world)
+function plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_history, t_camera_history, t_camera_d, R_history, R_camera_d, t_camera_initial, R_camera_initial, P_world, J_history)
     % 绘制视觉特征与期望值的对比
     figure;
     hold on;
@@ -550,6 +593,15 @@ function plot_simulation_results(t, s_history, s_star, Z_history, Z_star, tau_hi
     ylabel('Camera Position');
     title('Camera Position Evolution');
     legend('Location', 'best');
+    grid on;
+
+    % 可视化 J 的变化曲线
+    figure;
+    hold on;
+    plot(J_history, 'b-o', 'LineWidth', 2);
+    xlabel('Iteration');
+    ylabel('J (Error Squared)');
+    title('Error Squared (J) over Iterations');
     grid on;
 
     % 绘制初始位姿、期望位姿、最终位姿的三维图

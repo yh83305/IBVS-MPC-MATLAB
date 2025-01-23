@@ -303,8 +303,8 @@ function [tau, tau_seq] = mpc_controller(s, s_star, Z, Np, Q, R, Ts, K, F, image
     % 提取第一个控制输入
     tau = tau_seq(1:6);
 
-    [~, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F);
-    fprintf('J: [%.4f, %.4f, %.4f]\n', J1, J2, J3);
+    [~, s_pred_history, J1, J2] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F);
+    fprintf('J: [%.4f, %.4f]\n', J1, J2);
 
     if vis_predict
         plot_s_pred_history(s_pred_history, image_width, image_height, fig_handle);
@@ -348,7 +348,7 @@ function [c, ceq] = fov_constraints(tau_seq, s, Z, Np, Ts, K, F, image_width, im
     end
 end
 
-function [J, s_pred_history, J1, J2, J3] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F)
+function [J, s_pred_history, J1, J2] = cost_function(tau_seq, s, s_star, Z, Np, Q, R, Ts, K, F)
     J1 = 0;
     J2 = 0;
     s_pred = s;
