@@ -1,6 +1,6 @@
 % 清空工作区
 clear; clc;
-vis_pose = false;
+vis_pose = true;
 vis_predict = false;
 
 % 相机内参
@@ -25,10 +25,10 @@ F(2:2:end, 2:2:end) = diag(fy * ones(4, 1)); % 偶数行对角
 P_world = [0.1, 0.1, 0; -0.1, 0.1, 0; -0.1, -0.1, 0; 0.1, -0.1, 0]'; % 世界坐标系下的三维点 (3x4 矩阵)
 
 % 定义相机初始位置和姿态
-R_camera = [-1, 0, 0; 0, -1, 0; 0, 0, -1];
-t_camera = [0.1; 0.1; 1];
-theta_x = deg2rad(20); % 绕 x 轴旋转角度
-theta_y = deg2rad(20);  % 绕 y 轴旋转角度
+R_camera = [-1, 0, 0; 0, 1, 0; 0, 0, -1];
+t_camera = [0.1; 0.1; 2];
+theta_x = deg2rad(10); % 绕 x 轴旋转角度
+theta_y = deg2rad(10);  % 绕 y 轴旋转角度
 R_x = [1, 0, 0; 0, cos(theta_x), -sin(theta_x); 0, sin(theta_x), cos(theta_x)]; % 绕 x 轴旋转
 R_y = [cos(theta_y), 0, sin(theta_y); 0, 1, 0; -sin(theta_y), 0, cos(theta_y)]; % 绕 y 轴旋转
 R_camera = R_x * R_y* R_camera; % 组合旋转
@@ -37,15 +37,15 @@ R_camera0 = R_camera;
 t_camera0 = t_camera;
 
 % 定义目标相机位置和姿态
-R_camera_d = [-1, 0, 0; 0, -1, 0; 0, 0, -1];
+R_camera_d = [-1, 0, 0; 0, 1, 0; 0, 0, -1];
 t_camera_d = [0; 0; 0.5];
 
 % 仿真参数
 Np = 5;   % 预测时域
 Q = eye(8); % 加权矩阵 (8x8单位矩阵)
 R_weight = 100; % 正则化权重
-Tf = 10; % 仿真总时间 (10秒)
-Ts = 0.04; % 采样时间 (40ms)
+Tf = 5; % 仿真总时间 (10秒)
+Ts = 0.02; % 采样时间 (40ms)
 t = 0:Ts:Tf; % 时间向量
 N = length(t); % 仿真步数
 
